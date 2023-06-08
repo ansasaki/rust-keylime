@@ -4,11 +4,11 @@
 use crate::error::{Error, Result};
 use libc::{c_char, c_int, gid_t, uid_t};
 use log::*;
-use std::os::unix::ffi::OsStrExt;
 use std::{
     convert::{TryFrom, TryInto},
     ffi::CString,
-    io,
+    fs, io,
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::Path,
     ptr,
 };
@@ -143,8 +143,43 @@ pub(crate) fn run_as(user_group: &str) -> Result<()> {
     Ok(())
 }
 
+fn check_owned(ids: &UserIds, path: &Path) -> Result<bool> {
+    let meta = fs::metadata(path)?;
+    let p_uid = meta.uid();
+    let p_gid = meta.gid();
+
+    if (p_uid == ids.passwd.pw_uid && p_gid == ids.passwd.pw_gid) {
+        if meta.is_dir() {
+            for entry in fs::read_dir(path).map_err(Error::from)? {
+                let entry = entry.map_err(Error::from)?;
+                let p = entry.path();
+                match check_owned(ids, &p) {
+                    Ok(r) => {
+                        if !r {
+                            // In case the file is not owned, return false
+                            return Ok(false);
+                        }
+                    }
+                    Err(e) => {
+                        return Err(Error::from(e));
+                    }
+                }
+            }
+        }
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 pub(crate) fn chown(user_group: &str, path: &Path) -> Result<()> {
     let ids: UserIds = user_group.try_into()?;
+
+    if let Ok(is_owned) = check_owned(&ids, path) {
+        if is_owned {
+            return Ok(());
+        }
+    }
 
     // check privilege
     if get_euid() != 0 {
