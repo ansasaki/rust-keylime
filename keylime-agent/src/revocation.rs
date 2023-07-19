@@ -51,57 +51,35 @@ pub(crate) enum RevocationMessage {
 /// The lookup goes in the following order:
 /// 1. Look for pre-installed action
 /// 2. Look for the action in the tenant-provided initial payload
-/// Then, if python revocation actions are allowed:
-/// 3. Look for pre-installed Python action
-/// 4. Look for the Python action in the tenant-provided initial payload
 fn lookup_action(
     payload_dir: &Path,
     actions_dir: &Path,
     action: &str,
     allow_payload_actions: bool,
-) -> Result<(String, bool, bool)> {
-    let mut py_action = PathBuf::from(action);
-    if !py_action.set_extension("py") {
-        return Err(Error::Other(format!(
-            "unable to set action {} extension",
-            &action
-        )));
-    }
-
+) -> Result<(String, bool)> {
     // This creates four possible paths that will be searched to see if the script exists. The
     // order corresponds to the lookup order described in the documentation for this function.
-    // The tuple is considered as (script, is_python, is_payload)
+    // The tuple is considered as (script, is_payload)
     let possible_paths = [
-        (actions_dir.join(action), false, false),
-        (payload_dir.join(action), false, true),
-        #[cfg(feature = "legacy-python-actions")]
-        (actions_dir.join(&py_action), true, false),
-        #[cfg(feature = "legacy-python-actions")]
-        (payload_dir.join(&py_action), true, true),
+        (actions_dir.join(action), false),
+        (payload_dir.join(action), true),
     ];
 
     match possible_paths
         .iter()
-        .filter(|(_, _, is_payload)| {
+        .filter(|(_, is_payload)| {
             // Ignore payload actions if not allowed
             (!*is_payload || allow_payload_actions)
         })
-        .find(|(path, _, _)| path.exists())
+        .find(|(path, _)| path.exists())
     {
         None => Err(Error::Io(std::io::Error::new(
             ErrorKind::NotFound,
             format!("Could not find action {action}"),
         ))),
-        Some((script, is_python, is_payload)) => {
-            // If the script is python, add the shim to the command.  It is expected to be
-            // installed on pre-installed actions directory.
-            let command = if *is_python {
-                let shim = actions_dir.join("shim.py");
-                format!("{}", shim.as_path().display())
-            } else {
-                format!("{}", script.as_path().display())
-            };
-            Ok((command, *is_python, *is_payload))
+        Some((script, is_payload)) => {
+            let command = script.as_path().display().to_string();
+            Ok((command, *is_payload))
         }
     }
 }
@@ -116,7 +94,7 @@ pub(crate) fn run_action(
     work_dir: &Path,
 ) -> Result<Output> {
     // Lookup for command and get command line
-    let (command, is_python, is_payload) = lookup_action(
+    let (command, is_payload) = lookup_action(
         payload_dir,
         actions_dir,
         action,
@@ -133,27 +111,13 @@ pub(crate) fn run_action(
     //TODO check if it is possible to not keep the file when passing to another process
     let (json_dump, json_path) = json_dump.keep()?;
 
-    let child = if is_python {
-        let python_path = if is_payload { payload_dir } else { actions_dir };
-
-        Command::new(command)
-            .arg(action)
-            .arg(&json_path)
-            .current_dir(work_dir)
-            .env("PYTHONPATH", python_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        Command::new(command)
-            .arg(&json_path)
-            .current_dir(work_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
+    let child = Command::new(command)
+        .arg(&json_path)
+        .current_dir(work_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
     let output = match child.wait_with_output() {
         Ok(output) => {
@@ -596,13 +560,8 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/tests/unzipped/test_ok.json"
         );
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "legacy-python-actions")] {
-                let revocation_actions = "local_action_hello, local_action_payload, local_action_stand_alone.py, local_action_rev_script1.py";
-            } else {
-                let revocation_actions = "local_action_stand_alone.py, local_action_rev_script1.py";
-            }
-        }
+        let revocation_actions =
+            "local_action_stand_alone.py, local_action_rev_script1.py";
         let json_str = std::fs::read_to_string(json_file).unwrap(); //#[allow_ci]
         let json = serde_json::from_str(&json_str).unwrap(); //#[allow_ci]
         let actions_dir =
@@ -624,14 +583,7 @@ mod tests {
 
         assert!(outputs.is_ok());
         let outputs = outputs.unwrap(); //#[allow_ci]
-
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "legacy-python-actions")] {
-                assert!(outputs.len() == 6);
-            } else {
-                assert!(outputs.len() == 4);
-            }
-        }
+        assert!(outputs.len() == 4);
 
         for output in outputs {
             assert_eq!(
@@ -647,25 +599,6 @@ mod tests {
         let payload_dir = Path::new(&work_dir).join("unzipped/");
         let actions_dir = Path::new(&work_dir).join("actions/");
 
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "legacy-python-actions")] {
-                // Test local python action
-                let expected =
-                    format!("{}", &actions_dir.join("shim.py").display(),);
-
-                assert_eq!(
-                    lookup_action(
-                        &payload_dir,
-                        &actions_dir,
-                        "local_action_hello",
-                        true
-                    )
-                    .unwrap(), //#[allow_ci]
-                    (expected, true, false)
-                );
-            }
-        }
-
         // Test local non-python action
         let expected = format!(
             "{}",
@@ -680,27 +613,8 @@ mod tests {
                 true
             )
             .unwrap(), //#[allow_ci]
-            (expected, false, false)
+            (expected, false)
         );
-
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "legacy-python-actions")] {
-                // Test payload python action
-                let expected =
-                    format!("{}", &actions_dir.join("shim.py").display(),);
-
-                assert_eq!(
-                    lookup_action(
-                        &payload_dir,
-                        &actions_dir,
-                        "local_action_payload",
-                        true,
-                    )
-                    .unwrap(), //#[allow_ci]
-                    (expected, true, true),
-                );
-            }
-        }
 
         // Test payload non-python action
         let expected = format!(
@@ -716,7 +630,7 @@ mod tests {
                 true
             )
             .unwrap(), //#[allow_ci]
-            (expected, false, true)
+            (expected, true)
         );
 
         // Test that disallowing payload works

@@ -236,23 +236,6 @@ async fn main() -> Result<()> {
         warn!("INSECURE: Only use Keylime in this mode for testing or debugging purposes.");
     }
 
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "legacy-python-actions")] {
-            warn!("The support for legacy python revocation actions is deprecated and will be removed on next major release");
-
-            let actions_dir = &config.agent.revocation_actions_dir;
-            // Verify if the python shim is installed in the expected location
-            let python_shim = Path::new(&actions_dir).join("shim.py");
-            if !python_shim.exists() {
-                error!("Could not find python shim at {}", python_shim.display());
-                return Err(Error::Configuration(format!(
-                    "Could not find python shim at {}",
-                    python_shim.display()
-                )));
-            }
-        }
-    }
-
     // When the tpm_ownerpassword is given, set auth for the Endorsement hierarchy.
     // Note in the Python implementation, tpm_ownerpassword option is also used for claiming
     // ownership of TPM access, which will not be implemented here.

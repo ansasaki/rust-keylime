@@ -57,9 +57,6 @@ with-zmq = ["zmq"]
 # actions loaded as modules, which is the only kind supported by the python
 # agent (unless the enhancement-55 is implemented). See:
 # https://github.com/keylime/enhancements/blob/master/55_revocation_actions_without_python.md
-#
-# This feature is deprecated and will be removed on next major release
-legacy-python-actions = []
 
 [package.metadata.deb]
 section = "net"
@@ -68,7 +65,6 @@ assets = [
   ["../README.md", "usr/share/doc/keylime-agent/README", "644"],
   ["../keylime-agent.conf", "/etc/keylime/agent.conf", "640"],
   ["../dist/systemd/system/var-lib-keylime-secure.mount", "lib/systemd/system/var-lib-keylime-secure.mount", "644"],
-  ["../tests/actions/shim.py", "usr/libexec/keylime/shim.py", "755"],
 ]
 maintainer-scripts = "../debian/"
 systemd-units = { unit-scripts = "../dist/systemd/system/", enable = true }
