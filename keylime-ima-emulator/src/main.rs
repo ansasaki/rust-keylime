@@ -69,6 +69,7 @@ fn ml_extend(
     let pcr_digest: MessageDigest = pcr_hash_alg.into();
     let mut running_hash = ima::Digest::start(pcr_hash_alg);
     let ff_hash = ima::Digest::ff(pcr_hash_alg);
+    println!("IMA start hash: {ima_start_hash:?}");
     for line in reader.by_ref().lines().skip(position) {
         let line = line?;
         if line.is_empty() {
@@ -79,6 +80,7 @@ fn ml_extend(
 
         position += 1;
 
+        println!("entry template hash: {:?}", entry.template_hash);
         // Set correct hash for time of measure, time of use (ToMToU) errors
         // and if a file is already opened for write.
         // https://elixir.bootlin.com/linux/v5.12.12/source/security/integrity/ima/ima_main.c#L101
@@ -89,6 +91,10 @@ fn ml_extend(
             entry.event_data.encode(&mut event_data)?;
             let pcr_event_hash = hash(pcr_digest, &event_data)?;
             let ima_event_hash = hash(ima_digest, &event_data)?;
+            println!("event data: {:?}", event_data);
+            println!("PCR event hash: {:?}", pcr_event_hash);
+            println!("IMA event hash: {:?}", ima_event_hash.as_ref());
+            println!("entry template hash: {:?}", entry.template_hash.value());
             if ima_event_hash.as_ref() != entry.template_hash.value() {
                 return Err(ImaEmulatorError::Other(
                     "IMA template hash doesn't match".to_string(),
@@ -228,7 +234,7 @@ fn main() -> std::result::Result<(), ImaEmulatorError> {
                 ima_hash_alg,
                 *pcr_hash_alg,
                 None,
-                ).expect("Error extending position {position} on PCR bank {pcr_hash_alg}");
+                ).expect(format!("Error extending position {position} on PCR bank {pcr_hash_alg}").as_str());
         }
 
         // FIXME: We could poll IMA_ML as in the python implementation, though
