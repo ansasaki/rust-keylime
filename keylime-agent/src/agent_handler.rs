@@ -21,7 +21,7 @@ pub(crate) struct AgentInfo {
 // It should return a AgentInfo object as JSON
 async fn info(
     req: HttpRequest,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     debug!("Returning agent information");
 

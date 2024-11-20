@@ -133,7 +133,7 @@ fn try_combine_keys(
 async fn u_key(
     body: web::Json<KeylimeUKey>,
     req: HttpRequest,
-    quote_data: web::Data<QuoteData>,
+    quote_data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     debug!("Received ukey");
 
@@ -247,7 +247,7 @@ async fn u_key(
 async fn v_key(
     body: web::Json<KeylimeVKey>,
     req: HttpRequest,
-    quote_data: web::Data<QuoteData>,
+    quote_data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     debug!("Received vkey");
 
@@ -317,7 +317,7 @@ async fn v_key(
 
 async fn pubkey(
     req: HttpRequest,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     match crypto::pkey_pub_to_pem(&data.pub_key) {
         Ok(pubkey) => {
@@ -367,7 +367,7 @@ async fn get_symm_key(
 async fn verify(
     param: web::Query<KeylimeChallenge>,
     req: HttpRequest,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     if param.challenge.is_empty() {
         warn!(

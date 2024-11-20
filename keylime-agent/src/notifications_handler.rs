@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 async fn revocation(
     body: web::Json<Revocation>,
     req: HttpRequest,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     info!("Received revocation");
 

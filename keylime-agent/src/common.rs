@@ -319,7 +319,14 @@ mod tests {
             tpm_signing_alg,
             ek_hash.as_bytes(),
         );
+
         assert!(valid);
+
+        // Cleanup created keys
+        let ak_handle = ctx.load_ak(ek_result.key_handle, &ak)?;
+        ctx.flush_context(ak_handle.into());
+        ctx.flush_context(ek_result.key_handle.into());
+
         Ok(())
     }
 
@@ -342,6 +349,10 @@ mod tests {
         let result = hash_ek_pubkey(ek_result.public);
 
         assert!(result.is_ok());
+
+        // Cleanup created keys
+        ctx.flush_context(ek_result.key_handle.into());
+
         Ok(())
     }
 }

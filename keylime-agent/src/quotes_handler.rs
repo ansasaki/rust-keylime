@@ -50,7 +50,7 @@ pub(crate) struct KeylimeQuote {
 async fn identity(
     req: HttpRequest,
     param: web::Query<Ident>,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     // nonce can only be in alphanumerical format
     if !param.nonce.chars().all(char::is_alphanumeric) {
@@ -139,7 +139,7 @@ async fn identity(
 async fn integrity(
     req: HttpRequest,
     param: web::Query<Integ>,
-    data: web::Data<QuoteData>,
+    data: web::Data<QuoteData<'_>>,
 ) -> impl Responder {
     // nonce, mask can only be in alphanumerical format
     if !param.nonce.chars().all(char::is_alphanumeric) {
@@ -418,7 +418,7 @@ mod tests {
 
         let mut context = quotedata.tpmcontext.lock().unwrap(); //#[allow_ci]
         tpm::testing::check_quote(
-            context.as_mut(),
+            &mut context,
             quotedata.ak_handle,
             &result.results.quote,
             b"1234567890ABCDEFHIJ",
@@ -470,7 +470,7 @@ mod tests {
 
                     let mut context = quotedata.tpmcontext.lock().unwrap(); //#[allow_ci]
                     tpm::testing::check_quote(
-                        context.as_mut(),
+                        &mut context,
                         quotedata.ak_handle,
                         &result.results.quote,
                         b"1234567890ABCDEFHIJ",
@@ -529,7 +529,7 @@ mod tests {
 
         let mut context = quotedata.tpmcontext.lock().unwrap(); //#[allow_ci]
         tpm::testing::check_quote(
-            context.as_mut(),
+            &mut context,
             quotedata.ak_handle,
             &result.results.quote,
             b"1234567890ABCDEFHIJ",

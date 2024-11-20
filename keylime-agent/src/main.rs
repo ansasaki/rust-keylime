@@ -98,8 +98,8 @@ static NOTFOUND: &[u8] = b"Not Found";
 // This data is passed in to the actix httpserver threads that
 // handle quotes.
 #[derive(Debug)]
-pub struct QuoteData {
-    tpmcontext: Mutex<tpm::Context>,
+pub struct QuoteData<'a> {
+    tpmcontext: Mutex<tpm::Context<'a>>,
     priv_key: PKey<Private>,
     pub_key: PKey<Public>,
     ak_handle: KeyHandle,
@@ -273,14 +273,6 @@ async fn main() -> Result<()> {
 
     let mut ctx = tpm::Context::new()?;
 
-    //  Retrieve the TPM Vendor, this allows us to warn if someone is using a
-    // Software TPM ("SW")
-    if tss_esapi::utils::get_tpm_vendor(ctx.as_mut())?.contains("SW") {
-        warn!("INSECURE: Keylime is currently using a software TPM emulator rather than a real hardware TPM.");
-        warn!("INSECURE: The security of Keylime is NOT linked to a hardware root of trust.");
-        warn!("INSECURE: Only use Keylime in this mode for testing or debugging purposes.");
-    }
-
     cfg_if::cfg_if! {
         if #[cfg(feature = "legacy-python-actions")] {
             warn!("The support for legacy python revocation actions is deprecated and will be removed on next major release");
@@ -313,7 +305,7 @@ async fn main() -> Result<()> {
         } else {
             Auth::try_from(tpm_ownerpassword.as_bytes())?
         };
-        ctx.as_mut().tr_set_auth(Hierarchy::Endorsement.into(), auth)
+        ctx.tr_set_auth(Hierarchy::Endorsement.into(), auth)
             .map_err(|e| {
                 Error::Configuration(config::KeylimeConfigError::Generic(format!(
                     "Failed to set TPM context password for Endorsement Hierarchy: {e}"
@@ -406,7 +398,7 @@ async fn main() -> Result<()> {
             /// If handle is not set in config, recreate IDevID according to template
             info!("Recreating IDevID.");
             let regen_idev = ctx.create_idevid(asym_alg, name_alg)?;
-            ctx.as_mut().flush_context(regen_idev.handle.into())?;
+            ctx.flush_context(regen_idev.handle.into())?;
             // Flush after creating to make room for AK and EK and IAK
             regen_idev
         } else {
@@ -780,7 +772,7 @@ async fn main() -> Result<()> {
         )?;
         // Flush EK if we created it
         if config.agent.ek_handle.is_empty() {
-            ctx.as_mut().flush_context(ek_result.key_handle.into())?;
+            ctx.flush_context(ek_result.key_handle.into())?;
         }
         let mackey = general_purpose::STANDARD.encode(key.value());
         let auth_tag =
@@ -1052,6 +1044,8 @@ mod testing {
     use crate::{config::KeylimeConfig, crypto::CryptoError};
     use thiserror::Error;
 
+    use std::sync::{Arc, Mutex, OnceLock};
+
     #[derive(Error, Debug)]
     pub(crate) enum MainTestError {
         /// Algorithm error
@@ -1083,7 +1077,17 @@ mod testing {
         TSSError(#[from] tss_esapi::Error),
     }
 
-    impl QuoteData {
+    impl<'a> Drop for QuoteData<'a> {
+        /// Flush the created AK when dropping
+        fn drop(&mut self) {
+            self.tpmcontext
+                .lock()
+                .unwrap() //#[allow_ci]
+                .flush_context(self.ak_handle.into());
+        }
+    }
+
+    impl<'a> QuoteData<'a> {
         pub(crate) fn fixture() -> std::result::Result<Self, MainTestError> {
             let test_config = KeylimeConfig::default();
             let mut ctx = tpm::Context::new()?;
@@ -1092,9 +1096,6 @@ mod testing {
                 keylime::algorithms::EncryptionAlgorithm::try_from(
                     test_config.agent.tpm_encryption_alg.as_str(),
                 )?;
-
-            // Gather EK and AK key values and certs
-            let ek_result = ctx.create_ek(tpm_encryption_alg, None)?;
 
             let tpm_hash_alg = keylime::algorithms::HashAlgorithm::try_from(
                 test_config.agent.tpm_hash_alg.as_str(),
@@ -1105,14 +1106,19 @@ mod testing {
                     test_config.agent.tpm_signing_alg.as_str(),
                 )?;
 
-            let ak_result = ctx.create_ak(
-                ek_result.key_handle,
-                tpm_hash_alg,
-                tpm_signing_alg,
-            )?;
-            let ak_handle = ctx.load_ak(ek_result.key_handle, &ak_result)?;
-            let ak_tpm2b_pub =
-                PublicBuffer::try_from(ak_result.public)?.marshall()?;
+            // Gather EK and AK key values and certs
+            let ek_result = ctx.create_ek(tpm_encryption_alg, None).unwrap(); //#[allow_ci]
+            let ak_result = ctx
+                .create_ak(
+                    ek_result.key_handle,
+                    tpm_hash_alg,
+                    tpm_signing_alg,
+                )
+                .unwrap(); //#[allow_ci]
+            let ak_handle =
+                ctx.load_ak(ek_result.key_handle, &ak_result).unwrap(); //#[allow_ci]
+
+            ctx.flush_context(ek_result.key_handle.into()).unwrap(); //#[allow_ci]
 
             let rsa_key_path = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("test-data")
