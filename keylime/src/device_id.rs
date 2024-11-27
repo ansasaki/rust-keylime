@@ -485,4 +485,25 @@ mod tests {
             .idevid_asym_alg("")
             .idevid_hash_alg("");
     }
+
+    #[test]
+    #[cfg(feature = "testing")]
+    fn test_device_id_builder() {
+        let mut tpm_ctx = tpm::Context::new().unwrap(); //#[allow_ci]
+        let result = DeviceIDBuilder::new()
+            .iak_handle("")
+            .iak_cert_path("")
+            .iak_password("")
+            .iak_template("")
+            .iak_asym_alg("")
+            .iak_hash_alg("")
+            .idevid_handle("")
+            .idevid_cert_path("")
+            .idevid_password("")
+            .idevid_template("")
+            .idevid_asym_alg("")
+            .idevid_hash_alg("")
+            .build(&mut tpm_ctx);
+        assert!(result.is_ok(), "Result: {result:?}")
+    }
 }
