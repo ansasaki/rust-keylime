@@ -774,11 +774,18 @@ async fn add_agent(
     // Step 2: Determine API version and enrollment approach
     output.step(2, 4, "Detecting verifier API version");
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
+    // Build verifier client with detection, then override to v3.0 if push_model is set
+    let mut verifier_client_builder =
+        VerifierClient::builder().config(config);
+
+    // For push model, we need to use API v3.0 for verifier requests
+    if params.push_model {
+        verifier_client_builder =
+            verifier_client_builder.override_api_version("3.0");
+    }
+
+    let verifier_client =
+        verifier_client_builder.build().await.map_err(|e| {
             CommandError::resource_error("verifier", e.to_string())
         })?;
 
@@ -786,11 +793,17 @@ async fn add_agent(
         verifier_client.api_version().parse::<f32>().unwrap_or(2.1);
 
     // Use push model if explicitly requested via --push-model flag
-    // This skips direct agent communication but still uses the detected API version
-    // for verifier requests
+    // This skips direct agent communication and uses API v3.0 for verifier requests
     let is_push_model = params.push_model;
 
-    debug!("Detected API version: {api_version}, using push model: {is_push_model}");
+    debug!(
+        "Detected API version: {}, using API version: {api_version}, push model: {is_push_model}",
+        if is_push_model {
+            "auto-detected (overridden to 3.0)"
+        } else {
+            &format!("{api_version}")
+        }
+    );
 
     // Determine agent connection details (needed for pull model)
     let (agent_ip, agent_port) = if !is_push_model {

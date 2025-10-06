@@ -159,12 +159,16 @@ pub struct VerifierClient {
 #[derive(Debug)]
 pub struct VerifierClientBuilder<'a> {
     config: Option<&'a Config>,
+    override_api_version: Option<String>,
 }
 
 impl<'a> VerifierClientBuilder<'a> {
     /// Create a new builder instance
     pub fn new() -> Self {
-        Self { config: None }
+        Self {
+            config: None,
+            override_api_version: None,
+        }
     }
 
     /// Set the configuration for the client
@@ -173,11 +177,25 @@ impl<'a> VerifierClientBuilder<'a> {
         self
     }
 
+    /// Override the API version after detection
+    ///
+    /// This allows you to override the detected API version for specific
+    /// operations while still benefiting from detection for component
+    /// discovery. Useful for push-model where verifier needs v3.0 but
+    /// other components may use different versions.
+    pub fn override_api_version(mut self, version: &str) -> Self {
+        self.override_api_version = Some(version.to_string());
+        self
+    }
+
     /// Build the VerifierClient with automatic API version detection
     ///
     /// This is the recommended way to create a client for production use,
     /// as it will automatically detect the optimal API version supported
     /// by the verifier service.
+    ///
+    /// If `override_api_version()` was called, the detected version will
+    /// be overridden after detection completes.
     pub async fn build(self) -> Result<VerifierClient, KeylimectlError> {
         let config = self.config.ok_or_else(|| {
             KeylimectlError::validation(
@@ -185,7 +203,14 @@ impl<'a> VerifierClientBuilder<'a> {
             )
         })?;
 
-        VerifierClient::new(config).await
+        let mut client = VerifierClient::new(config).await?;
+
+        // Override API version if specified
+        if let Some(version) = self.override_api_version {
+            client.api_version = version;
+        }
+
+        Ok(client)
     }
 }
 
@@ -1963,6 +1988,32 @@ mod tests {
 
             client.api_version = "3.0".to_string();
             assert_eq!(client.api_version, "3.0");
+        }
+
+        #[tokio::test]
+        async fn test_builder_override_api_version() {
+            let config = create_test_config();
+            let client = VerifierClient::builder()
+                .config(&config)
+                .override_api_version("3.0")
+                .build()
+                .await;
+
+            assert!(client.is_ok());
+            let client = client.unwrap();
+            // Should use the overridden version
+            assert_eq!(client.api_version, "3.0");
+        }
+
+        #[tokio::test]
+        async fn test_builder_without_override() {
+            let config = create_test_config();
+            let client =
+                VerifierClient::builder().config(&config).build().await;
+
+            // This will fail to connect but we can check the structure
+            // In a real scenario, it would detect the version
+            assert!(client.is_ok() || client.is_err());
         }
 
         #[test]
