@@ -758,18 +758,9 @@ async fn add_agent(
     // Step 2: Determine API version and enrollment approach
     output.step(2, 4, "Detecting verifier API version");
 
-    // For push model, we need to use API v3.0 for verifier requests
-    let verifier_client = if params.push_model {
-        factory::get_verifier_with_override("3.0")
-            .await
-            .map_err(|e| {
-                CommandError::resource_error("verifier", e.to_string())
-            })?
-    } else {
-        factory::get_verifier().await.map_err(|e| {
-            CommandError::resource_error("verifier", e.to_string())
-        })?
-    };
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error("verifier", e.to_string())
+    })?;
 
     let api_version =
         verifier_client.api_version().parse::<f32>().unwrap_or(2.1);

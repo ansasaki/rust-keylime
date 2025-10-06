@@ -18,7 +18,6 @@ use crate::error::KeylimectlError;
 use std::sync::OnceLock;
 
 static VERIFIER_CLIENT: OnceLock<VerifierClient> = OnceLock::new();
-static VERIFIER_CLIENT_OVERRIDE: OnceLock<VerifierClient> = OnceLock::new();
 static REGISTRAR_CLIENT: OnceLock<RegistrarClient> = OnceLock::new();
 
 /// Get or create the verifier client
@@ -58,52 +57,6 @@ pub async fn get_verifier() -> Result<&'static VerifierClient, KeylimectlError>
             // But this shouldn't happen in single-threaded keylimectl
             drop(client);
             Ok(VERIFIER_CLIENT.get().unwrap())
-        }
-    }
-}
-
-/// Get or create the verifier client with API version override
-///
-/// This function is used for push-model where we need to force API v3.0
-/// for verifier requests while still benefiting from version detection.
-///
-/// # Arguments
-///
-/// * `api_version` - The API version to use (e.g., "3.0")
-///
-/// # Errors
-///
-/// Returns an error if the client cannot be created.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// use keylimectl::client::factory;
-///
-/// // For push-model operations
-/// let verifier = factory::get_verifier_with_override("3.0").await?;
-/// ```
-pub async fn get_verifier_with_override(
-    api_version: &str,
-) -> Result<&'static VerifierClient, KeylimectlError> {
-    if let Some(client) = VERIFIER_CLIENT_OVERRIDE.get() {
-        return Ok(client);
-    }
-
-    // Create and initialize the client with override
-    let config = get_config();
-    let client = VerifierClient::builder()
-        .config(config)
-        .override_api_version(api_version)
-        .build()
-        .await?;
-
-    // Try to set it
-    match VERIFIER_CLIENT_OVERRIDE.set(client) {
-        Ok(()) => Ok(VERIFIER_CLIENT_OVERRIDE.get().unwrap()),
-        Err(client) => {
-            drop(client);
-            Ok(VERIFIER_CLIENT_OVERRIDE.get().unwrap())
         }
     }
 }
