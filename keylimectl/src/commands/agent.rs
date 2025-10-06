@@ -778,43 +778,35 @@ async fn add_agent(
         }
     );
 
-    // Determine agent connection details (needed for pull model)
-    let (agent_ip, agent_port) = if !is_push_model {
-        // Pull model: need agent IP/port for direct communication
-        let agent_ip = params
-            .ip
-            .map(|s| s.to_string())
-            .or_else(|| {
-                agent_data
-                    .get("ip")
-                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-            })
-            .ok_or_else(|| {
-                CommandError::invalid_parameter(
-                    "ip",
-                    "Agent IP address is required for pull model (use --push-model to skip)".to_string(),
-                )
-            })?;
+    // Determine agent connection details
+    let agent_ip = params
+        .ip
+        .map(|s| s.to_string())
+        .or_else(|| {
+            agent_data
+                .get("ip")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+        })
+        .ok_or_else(|| {
+            CommandError::invalid_parameter(
+                "ip",
+                "Agent IP address is required".to_string(),
+            )
+        })?;
 
-        let agent_port = params
-            .port
-            .or_else(|| {
-                agent_data
-                    .get("port")
-                    .and_then(|v| v.as_u64().map(|n| n as u16))
-            })
-            .ok_or_else(|| {
-                CommandError::invalid_parameter(
-                    "port",
-                    "Agent port is required for pull model (use --push-model to skip)".to_string(),
-                )
-            })?;
-
-        (agent_ip, agent_port)
-    } else {
-        // Push model: agent will connect to verifier, so use placeholder values
-        ("localhost".to_string(), 9002)
-    };
+    let agent_port = params
+        .port
+        .or_else(|| {
+            agent_data
+                .get("port")
+                .and_then(|v| v.as_u64().map(|n| n as u16))
+        })
+        .ok_or_else(|| {
+            CommandError::invalid_parameter(
+                "port",
+                "Agent port is required".to_string(),
+            )
+        })?;
 
     // Step 3: Perform attestation for pull model
     let attestation_result = if !is_push_model {
@@ -863,6 +855,8 @@ async fn add_agent(
             &agent_data,
             params.runtime_policy,
             params.mb_policy,
+            &agent_ip,
+            agent_port,
         )?
     } else {
         // API 2.x: Full enrollment with direct agent communication
@@ -2292,11 +2286,15 @@ fn build_push_model_request(
     agent_data: &Value,
     runtime_policy: Option<&str>,
     mb_policy: Option<&str>,
+    cloudagent_ip: &str,
+    cloudagent_port: u16,
 ) -> Result<Value, CommandError> {
     debug!("Building push model enrollment request for agent {agent_id}");
 
     let mut request = json!({
         "agent_id": agent_id,
+        "cloudagent_ip": cloudagent_ip,
+        "cloudagent_port": cloudagent_port,
         "tpm_policy": tpm_policy,
         "accept_attestations": true,
         "ak_tpm": agent_data.get("aik_tpm"),
