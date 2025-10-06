@@ -76,8 +76,7 @@
 //! # }
 //! ```
 
-use crate::client::{registrar::RegistrarClient, verifier::VerifierClient};
-use crate::config::Config;
+use crate::client::factory;
 use crate::error::{ErrorContext, KeylimectlError};
 use crate::output::OutputHandler;
 use crate::ListResource;
@@ -188,18 +187,15 @@ use serde_json::{json, Value};
 /// ```
 pub async fn execute(
     resource: &ListResource,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     match resource {
         ListResource::Agents {
             detailed,
             registrar_only,
-        } => list_agents(*detailed, *registrar_only, config, output).await,
-        ListResource::Policies => list_runtime_policies(config, output).await,
-        ListResource::MeasuredBootPolicies => {
-            list_mb_policies(config, output).await
-        }
+        } => list_agents(*detailed, *registrar_only, output).await,
+        ListResource::Policies => list_runtime_policies(output).await,
+        ListResource::MeasuredBootPolicies => list_mb_policies(output).await,
     }
 }
 
@@ -207,14 +203,12 @@ pub async fn execute(
 async fn list_agents(
     detailed: bool,
     registrar_only: bool,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     if registrar_only {
         output.info("Listing agents from registrar only");
 
-        let registrar_client =
-            RegistrarClient::builder().config(config).build().await?;
+        let registrar_client = factory::get_registrar().await?;
         let registrar_data =
             registrar_client.list_agents().await.with_context(|| {
                 "Failed to list agents from registrar".to_string()
@@ -224,20 +218,23 @@ async fn list_agents(
     } else if detailed {
         output.info("Retrieving detailed agent information from both verifier and registrar");
 
-        let verifier_client =
-            VerifierClient::builder().config(config).build().await?;
+        let verifier_client = factory::get_verifier().await?;
 
         // Get detailed info from verifier
         let verifier_data = verifier_client
-            .get_bulk_info(config.verifier.id.as_deref())
+            .get_bulk_info(
+                crate::config::singleton::get_config()
+                    .verifier
+                    .id
+                    .as_deref(),
+            )
             .await
             .with_context(|| {
                 "Failed to get bulk agent info from verifier".to_string()
             })?;
 
         // Also get registrar data for complete picture
-        let registrar_client =
-            RegistrarClient::builder().config(config).build().await?;
+        let registrar_client = factory::get_registrar().await?;
         let registrar_data =
             registrar_client.list_agents().await.with_context(|| {
                 "Failed to list agents from registrar".to_string()
@@ -251,12 +248,16 @@ async fn list_agents(
     } else {
         output.info("Listing agents from verifier");
 
-        let verifier_client =
-            VerifierClient::builder().config(config).build().await?;
+        let verifier_client = factory::get_verifier().await?;
 
         // Just get basic list from verifier
         let verifier_data = verifier_client
-            .list_agents(config.verifier.id.as_deref())
+            .list_agents(
+                crate::config::singleton::get_config()
+                    .verifier
+                    .id
+                    .as_deref(),
+            )
             .await
             .with_context(|| {
                 "Failed to list agents from verifier".to_string()
@@ -268,13 +269,11 @@ async fn list_agents(
 
 /// List runtime policies
 async fn list_runtime_policies(
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     output.info("Listing runtime policies");
 
-    let verifier_client =
-        VerifierClient::builder().config(config).build().await?;
+    let verifier_client = factory::get_verifier().await?;
     let policies = verifier_client
         .list_runtime_policies()
         .await
@@ -287,13 +286,11 @@ async fn list_runtime_policies(
 
 /// List measured boot policies
 async fn list_mb_policies(
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     output.info("Listing measured boot policies");
 
-    let verifier_client =
-        VerifierClient::builder().config(config).build().await?;
+    let verifier_client = factory::get_verifier().await?;
     let policies =
         verifier_client.list_mb_policies().await.with_context(|| {
             "Failed to list measured boot policies from verifier".to_string()
@@ -306,7 +303,7 @@ async fn list_mb_policies(
 mod tests {
     use super::*;
     use crate::config::{
-        ClientConfig, RegistrarConfig, TlsConfig, VerifierConfig,
+        ClientConfig, Config, RegistrarConfig, TlsConfig, VerifierConfig,
     };
     use serde_json::json;
 

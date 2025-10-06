@@ -369,11 +369,17 @@ async fn main() {
     }
     debug!("Configuration validation passed");
 
+    // Initialize config singleton
+    if let Err(e) = config::singleton::initialize_config(config) {
+        error!("Failed to initialize config singleton: {e}");
+        process::exit(1);
+    }
+
     // Initialize output handler
     let output = OutputHandler::new(cli.format, cli.quiet);
 
-    // Execute command
-    let result = execute_command(&cli.command, &config, &output).await;
+    // Execute command (no longer pass config)
+    let result = execute_command(&cli.command, &output).await;
 
     match result {
         Ok(response) => {
@@ -409,21 +415,20 @@ fn init_logging(verbose: u8, quiet: bool) {
 /// Execute the given command
 async fn execute_command(
     command: &Commands,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     match command {
         Commands::Agent { action } => {
-            commands::agent::execute(action, config, output).await
+            commands::agent::execute(action, output).await
         }
         Commands::Policy { action } => {
-            commands::policy::execute(action, config, output).await
+            commands::policy::execute(action, output).await
         }
         Commands::MeasuredBoot { action } => {
-            commands::measured_boot::execute(action, config, output).await
+            commands::measured_boot::execute(action, output).await
         }
         Commands::List { resource } => {
-            commands::list::execute(resource, config, output).await
+            commands::list::execute(resource, output).await
         }
     }
 }

@@ -6,5 +6,6 @@
 pub mod agent;
 pub mod base;
 pub mod error;
+pub mod factory;
 pub mod registrar;
 pub mod verifier;

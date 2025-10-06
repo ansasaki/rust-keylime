@@ -68,9 +68,8 @@
 //! # }
 //! ```
 
-use crate::client::verifier::VerifierClient;
+use crate::client::factory;
 use crate::commands::error::CommandError;
-use crate::config::Config;
 use crate::error::KeylimectlError;
 use crate::output::OutputHandler;
 use crate::MeasuredBootAction;
@@ -160,30 +159,25 @@ use std::fs;
 /// ```
 pub async fn execute(
     action: &MeasuredBootAction,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     match action {
         MeasuredBootAction::Create { name, file } => {
-            create_mb_policy(name, file, config, output)
+            create_mb_policy(name, file, output)
                 .await
                 .map_err(KeylimectlError::from)
         }
-        MeasuredBootAction::Show { name } => {
-            show_mb_policy(name, config, output)
-                .await
-                .map_err(KeylimectlError::from)
-        }
+        MeasuredBootAction::Show { name } => show_mb_policy(name, output)
+            .await
+            .map_err(KeylimectlError::from),
         MeasuredBootAction::Update { name, file } => {
-            update_mb_policy(name, file, config, output)
+            update_mb_policy(name, file, output)
                 .await
                 .map_err(KeylimectlError::from)
         }
-        MeasuredBootAction::Delete { name } => {
-            delete_mb_policy(name, config, output)
-                .await
-                .map_err(KeylimectlError::from)
-        }
+        MeasuredBootAction::Delete { name } => delete_mb_policy(name, output)
+            .await
+            .map_err(KeylimectlError::from),
     }
 }
 
@@ -191,7 +185,6 @@ pub async fn execute(
 async fn create_mb_policy(
     name: &str,
     file_path: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Creating measured boot policy '{name}'"));
@@ -263,16 +256,12 @@ async fn create_mb_policy(
         policy_data["policy_metadata"] = meta.clone();
     }
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response = verifier_client
         .add_mb_policy(name, policy_data)
         .await
@@ -300,21 +289,16 @@ async fn create_mb_policy(
 /// Show a measured boot policy
 async fn show_mb_policy(
     name: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Retrieving measured boot policy '{name}'"));
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let policy = verifier_client.get_mb_policy(name).await.map_err(|e| {
         CommandError::resource_error(
             "verifier",
@@ -335,7 +319,6 @@ async fn show_mb_policy(
 async fn update_mb_policy(
     name: &str,
     file_path: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Updating measured boot policy '{name}'"));
@@ -407,16 +390,12 @@ async fn update_mb_policy(
         policy_data["policy_metadata"] = meta.clone();
     }
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response = verifier_client
         .update_mb_policy(name, policy_data)
         .await
@@ -444,21 +423,16 @@ async fn update_mb_policy(
 /// Delete a measured boot policy
 async fn delete_mb_policy(
     name: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Deleting measured boot policy '{name}'"));
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response =
         verifier_client.delete_mb_policy(name).await.map_err(|e| {
             CommandError::resource_error(
@@ -485,7 +459,7 @@ async fn delete_mb_policy(
 mod tests {
     use super::*;
     use crate::config::{
-        ClientConfig, RegistrarConfig, TlsConfig, VerifierConfig,
+        ClientConfig, Config, RegistrarConfig, TlsConfig, VerifierConfig,
     };
     use serde_json::json;
     use std::io::Write;

@@ -71,9 +71,8 @@
 //! # }
 //! ```
 
-use crate::client::verifier::VerifierClient;
+use crate::client::factory;
 use crate::commands::error::CommandError;
-use crate::config::Config;
 use crate::error::KeylimectlError;
 use crate::output::OutputHandler;
 use crate::PolicyAction;
@@ -175,24 +174,23 @@ use std::fs;
 /// ```
 pub async fn execute(
     action: &PolicyAction,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {
     match action {
         PolicyAction::Create { name, file } => {
-            create_policy(name, file, config, output)
+            create_policy(name, file, output)
                 .await
                 .map_err(KeylimectlError::from)
         }
-        PolicyAction::Show { name } => show_policy(name, config, output)
+        PolicyAction::Show { name } => show_policy(name, output)
             .await
             .map_err(KeylimectlError::from),
         PolicyAction::Update { name, file } => {
-            update_policy(name, file, config, output)
+            update_policy(name, file, output)
                 .await
                 .map_err(KeylimectlError::from)
         }
-        PolicyAction::Delete { name } => delete_policy(name, config, output)
+        PolicyAction::Delete { name } => delete_policy(name, output)
             .await
             .map_err(KeylimectlError::from),
     }
@@ -202,7 +200,6 @@ pub async fn execute(
 async fn create_policy(
     name: &str,
     file_path: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Creating runtime policy '{name}'"));
@@ -276,16 +273,12 @@ async fn create_policy(
         policy_data["policy_metadata"] = meta.clone();
     }
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response = verifier_client
         .add_runtime_policy(name, policy_data)
         .await
@@ -309,21 +302,16 @@ async fn create_policy(
 /// Show a runtime policy
 async fn show_policy(
     name: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Retrieving runtime policy '{name}'"));
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let policy =
         verifier_client
             .get_runtime_policy(name)
@@ -350,7 +338,6 @@ async fn show_policy(
 async fn update_policy(
     name: &str,
     file_path: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Updating runtime policy '{name}'"));
@@ -424,16 +411,12 @@ async fn update_policy(
         policy_data["policy_metadata"] = meta.clone();
     }
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response = verifier_client
         .update_runtime_policy(name, policy_data)
         .await
@@ -457,21 +440,16 @@ async fn update_policy(
 /// Delete a runtime policy
 async fn delete_policy(
     name: &str,
-    config: &Config,
     output: &OutputHandler,
 ) -> Result<Value, CommandError> {
     output.info(format!("Deleting runtime policy '{name}'"));
 
-    let verifier_client = VerifierClient::builder()
-        .config(config)
-        .build()
-        .await
-        .map_err(|e| {
-            CommandError::resource_error(
-                "verifier",
-                format!("Failed to connect to verifier: {e}"),
-            )
-        })?;
+    let verifier_client = factory::get_verifier().await.map_err(|e| {
+        CommandError::resource_error(
+            "verifier",
+            format!("Failed to connect to verifier: {e}"),
+        )
+    })?;
     let response = verifier_client
         .delete_runtime_policy(name)
         .await
@@ -496,7 +474,7 @@ async fn delete_policy(
 mod tests {
     use super::*;
     use crate::config::{
-        ClientConfig, RegistrarConfig, TlsConfig, VerifierConfig,
+        ClientConfig, Config, RegistrarConfig, TlsConfig, VerifierConfig,
     };
     use serde_json::json;
     use std::io::Write;

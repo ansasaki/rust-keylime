@@ -91,6 +91,7 @@
 //! ```
 
 pub mod error;
+pub mod singleton;
 pub mod validation;
 
 // Re-export main config types for backwards compatibility
