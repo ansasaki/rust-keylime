@@ -1804,9 +1804,9 @@ fn load_payload_file(path: &str) -> Result<String, CommandError> {
 /// let policy = resolve_tpm_policy_enhanced(None, Some("/path/to/mb_with_tpm_policy.json"));
 /// // Returns extracted TPM policy from measured boot policy
 ///
-/// // With default fallback
+/// // With default fallback (empty policy with no PCRs)
 /// let policy = resolve_tpm_policy_enhanced(None, None);
-/// assert_eq!(policy, "{}");
+/// assert_eq!(policy, r#"{"mask":"0x0"}"#);
 /// ```
 fn resolve_tpm_policy_enhanced(
     explicit_policy: Option<&str>,
@@ -1838,9 +1838,9 @@ fn resolve_tpm_policy_enhanced(
         }
     }
 
-    // Priority 3: Default empty policy
-    debug!("Using default empty TPM policy");
-    Ok("{}".to_string())
+    // Priority 3: Default empty policy with zeroed mask (no PCRs)
+    debug!("Using default empty TPM policy with zeroed mask");
+    Ok(r#"{"mask":"0x0"}"#.to_string())
 }
 
 /// Extract TPM policy from a measured boot policy file
@@ -2291,42 +2291,44 @@ fn build_push_model_request(
 ) -> Result<Value, CommandError> {
     debug!("Building push model enrollment request for agent {agent_id}");
 
-    let mut request = json!({
-        "agent_id": agent_id,
+    // Load and encode runtime policy (required field, use empty string if not provided)
+    let runtime_policy_b64 = if let Some(policy_path) = runtime_policy {
+        let policy_content = load_policy_file(policy_path)?;
+        STANDARD.encode(policy_content.as_bytes())
+    } else {
+        String::new() // Empty string if no policy provided
+    };
+
+    // Load and encode measured boot policy (use empty string if not provided)
+    let mb_policy_b64 = if let Some(policy_path) = mb_policy {
+        let policy_content = load_policy_file(policy_path)?;
+        STANDARD.encode(policy_content.as_bytes())
+    } else {
+        String::new() // Empty string if no policy provided
+    };
+
+    let request = json!({
+        "v": agent_data.get("v"),
         "cloudagent_ip": cloudagent_ip,
         "cloudagent_port": cloudagent_port,
         "tpm_policy": tpm_policy,
-        "accept_attestations": true,
         "ak_tpm": agent_data.get("aik_tpm"),
         "mtls_cert": agent_data.get("mtls_cert"),
-        "accept_tpm_hash_algs": ["sha256", "sha1"],
-        "accept_tpm_encryption_algs": ["rsa", "ecc"],
-        "accept_tpm_signing_algs": ["rsa", "ecdsa"],
-        "ima_sign_verification_keys": agent_data.get("ima_sign_verification_keys").and_then(|v| v.as_str()).unwrap_or(""),
+        "runtime_policy_name": null,
+        "runtime_policy": runtime_policy_b64,
+        "runtime_policy_sig": "",
+        "runtime_policy_key": "",
+        "mb_refstate": "null",
+        "mb_policy_name": null,
+        "mb_policy": mb_policy_b64,
+        "ima_sign_verification_keys": agent_data.get("ima_sign_verification_keys").and_then(|v| v.as_str()).unwrap_or("[]"),
+        "metadata": agent_data.get("metadata").and_then(|v| v.as_str()).unwrap_or("{}"),
         "revocation_key": agent_data.get("revocation_key").and_then(|v| v.as_str()).unwrap_or(""),
-        "supported_version": agent_data.get("supported_version").and_then(|v| v.as_str()).unwrap_or("3.0"),
-        "mb_policy_name": agent_data.get("mb_policy_name").and_then(|v| v.as_str()).unwrap_or(""),
-        "mb_policy": agent_data.get("mb_policy").and_then(|v| v.as_str()).unwrap_or("")
+        "accept_tpm_hash_algs": ["sha512", "sha384", "sha256", "sha1"],
+        "accept_tpm_encryption_algs": ["ecc", "rsa"],
+        "accept_tpm_signing_algs": ["ecschnorr", "rsassa"],
+        "supported_version": agent_data.get("supported_version").and_then(|v| v.as_str()).unwrap_or("2.0")
     });
-
-    // Add policies if provided (base64-encoded as expected by verifier)
-    if let Some(policy_path) = runtime_policy {
-        let policy_content = load_policy_file(policy_path)?;
-        let policy_b64 = STANDARD.encode(policy_content.as_bytes());
-        request["runtime_policy"] = json!(policy_b64);
-    }
-
-    if let Some(policy_path) = mb_policy {
-        let policy_content = load_policy_file(policy_path)?;
-        let policy_b64 = STANDARD.encode(policy_content.as_bytes());
-        request["mb_policy"] = json!(policy_b64);
-    }
-
-    // Add metadata from agent data or default
-    request["metadata"] = agent_data
-        .get("metadata")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
 
     debug!("Push model request built successfully");
     Ok(request)
@@ -2885,9 +2887,9 @@ mod tests {
 
         #[test]
         fn test_resolve_tpm_policy_default_fallback() {
-            // Should fallback to default when no policies provided
+            // Should fallback to default when no policies provided (empty policy with no PCRs)
             let result = resolve_tpm_policy_enhanced(None, None).unwrap();
-            assert_eq!(result, "{}");
+            assert_eq!(result, r#"{"mask":"0x0"}"#);
         }
 
         #[test]
@@ -3024,14 +3026,14 @@ mod tests {
 
         #[test]
         fn test_resolve_tpm_policy_enhanced_extraction_error_fallback() {
-            // When extraction fails, should fallback to default
+            // When extraction fails, should fallback to default (empty policy with no PCRs)
             let result = resolve_tpm_policy_enhanced(
                 None,
                 Some("/nonexistent/file.json"),
             )
             .unwrap();
 
-            assert_eq!(result, "{}");
+            assert_eq!(result, r#"{"mask":"0x0"}"#);
         }
 
         #[test]
