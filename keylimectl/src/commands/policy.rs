@@ -77,6 +77,7 @@ use crate::config::Config;
 use crate::error::KeylimectlError;
 use crate::output::OutputHandler;
 use crate::PolicyAction;
+use base64::{engine::general_purpose::STANDARD as Base64, Engine};
 use chrono;
 use log::debug;
 use serde_json::{json, Value};
@@ -240,8 +241,10 @@ async fn create_policy(
         })?;
 
     // Extract policy metadata for enhanced API payload
+    // Note: The verifier expects runtime_policy to be base64-encoded
+    let encoded_policy = Base64.encode(policy_content.as_bytes());
     let mut policy_data = json!({
-        "runtime_policy": policy_content,
+        "runtime_policy": encoded_policy,
         "policy_type": "runtime",
         "format_version": "1.0",
         "upload_timestamp": chrono::Utc::now().to_rfc3339()
@@ -386,8 +389,10 @@ async fn update_policy(
         })?;
 
     // Extract policy metadata for enhanced API payload
+    // Note: The verifier expects runtime_policy to be base64-encoded
+    let encoded_policy = Base64.encode(policy_content.as_bytes());
     let mut policy_data = json!({
-        "runtime_policy": policy_content,
+        "runtime_policy": encoded_policy,
         "policy_type": "runtime",
         "format_version": "1.0",
         "update_timestamp": chrono::Utc::now().to_rfc3339()
@@ -978,6 +983,43 @@ mod tests {
             config.verifier.port = 9001;
 
             assert_eq!(config.verifier_base_url(), "https://127.0.0.1:9001");
+        }
+    }
+
+    // Test base64 encoding of policy data
+    mod base64_encoding {
+        #[test]
+        fn test_policy_content_is_base64_encoded() {
+            use base64::{
+                engine::general_purpose::STANDARD as Base64, Engine,
+            };
+
+            let policy_content = r#"{"allowlist": [{"path": "/bin/ls"}]}"#;
+            let encoded_policy = Base64.encode(policy_content.as_bytes());
+
+            // Verify it's base64 encoded
+            assert!(!encoded_policy.contains("{"));
+            assert!(!encoded_policy.contains("}"));
+            assert!(!encoded_policy.contains("allowlist"));
+
+            // Verify it can be decoded back
+            let decoded = Base64.decode(&encoded_policy).unwrap();
+            let decoded_str = String::from_utf8(decoded).unwrap();
+            assert_eq!(decoded_str, policy_content);
+        }
+
+        #[test]
+        fn test_base64_roundtrip() {
+            use base64::{
+                engine::general_purpose::STANDARD as Base64, Engine,
+            };
+
+            let original = r#"{"ima": {"require_signatures": true}}"#;
+            let encoded = Base64.encode(original.as_bytes());
+            let decoded = Base64.decode(&encoded).unwrap();
+            let result = String::from_utf8(decoded).unwrap();
+
+            assert_eq!(original, result);
         }
     }
 
