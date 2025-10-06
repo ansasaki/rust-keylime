@@ -784,13 +784,17 @@ async fn add_agent(
 
     let api_version =
         verifier_client.api_version().parse::<f32>().unwrap_or(2.1);
-    let is_push_model = api_version >= 3.0;
+
+    // Use push model if explicitly requested via --push-model flag
+    // This skips direct agent communication but still uses the detected API version
+    // for verifier requests
+    let is_push_model = params.push_model;
 
     debug!("Detected API version: {api_version}, using push model: {is_push_model}");
 
-    // Determine agent connection details (needed for legacy API < 3.0)
+    // Determine agent connection details (needed for pull model)
     let (agent_ip, agent_port) = if !is_push_model {
-        // Legacy pull model: need agent IP/port for direct communication
+        // Pull model: need agent IP/port for direct communication
         let agent_ip = params
             .ip
             .map(|s| s.to_string())
@@ -802,7 +806,7 @@ async fn add_agent(
             .ok_or_else(|| {
                 CommandError::invalid_parameter(
                     "ip",
-                    "Agent IP address is required for API < 3.0".to_string(),
+                    "Agent IP address is required for pull model (use --push-model to skip)".to_string(),
                 )
             })?;
 
@@ -816,7 +820,7 @@ async fn add_agent(
             .ok_or_else(|| {
                 CommandError::invalid_parameter(
                     "port",
-                    "Agent port is required for API < 3.0".to_string(),
+                    "Agent port is required for pull model (use --push-model to skip)".to_string(),
                 )
             })?;
 
@@ -826,9 +830,9 @@ async fn add_agent(
         ("localhost".to_string(), 9002)
     };
 
-    // Step 3: Perform legacy attestation for API < 3.0
+    // Step 3: Perform attestation for pull model
     let attestation_result = if !is_push_model {
-        output.step(3, 4, "Performing legacy TPM attestation (API < 3.0)");
+        output.step(3, 4, "Performing TPM attestation (pull model)");
 
         // Create agent client for direct communication
         let agent_client = AgentClient::builder()
@@ -851,11 +855,7 @@ async fn add_agent(
         )
         .await?
     } else {
-        output.step(
-            3,
-            4,
-            "Skipping direct attestation (push model, API >= 3.0)",
-        );
+        output.step(3, 4, "Skipping agent attestation (push model)");
         None
     };
 
