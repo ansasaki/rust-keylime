@@ -62,9 +62,7 @@ use log::{debug, info, warn};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
-/// Supported API versions in order from oldest to newest (fallback tries newest first)
-pub const SUPPORTED_API_VERSIONS: &[&str] =
-    &["2.0", "2.1", "2.2", "2.3", "3.0"];
+use crate::api_versions::SUPPORTED_API_VERSIONS;
 
 /// Response structure for version endpoint
 #[derive(serde::Deserialize, Debug)]
@@ -311,7 +309,7 @@ impl RegistrarClient {
 
         Ok(Self {
             base,
-            api_version: "2.1".to_string(), // Default API version
+            api_version: crate::api_versions::DEFAULT_API_VERSION.to_string(),
             supported_api_versions: None,
         })
     }
@@ -776,7 +774,10 @@ mod tests {
         assert!(result.is_ok());
         let client = result.unwrap(); //#[allow_ci]
         assert_eq!(client.base.base_url, "https://127.0.0.1:8891");
-        assert_eq!(client.api_version, "2.1");
+        assert_eq!(
+            client.api_version,
+            crate::api_versions::DEFAULT_API_VERSION
+        );
     }
 
     #[test]
@@ -972,12 +973,20 @@ mod tests {
 
         #[test]
         fn test_supported_api_versions_constant() {
-            // Test that the constant contains expected versions in correct order
+            // Test that the constant contains expected versions based on enabled features
+            assert!(!SUPPORTED_API_VERSIONS.is_empty());
+
+            #[cfg(all(feature = "api-v2", feature = "api-v3"))]
             assert_eq!(
                 SUPPORTED_API_VERSIONS,
                 &["2.0", "2.1", "2.2", "2.3", "3.0"]
             );
-            assert!(SUPPORTED_API_VERSIONS.len() >= 2);
+
+            #[cfg(all(feature = "api-v2", not(feature = "api-v3")))]
+            assert_eq!(SUPPORTED_API_VERSIONS, &["2.0", "2.1", "2.2", "2.3"]);
+
+            #[cfg(all(not(feature = "api-v2"), feature = "api-v3"))]
+            assert_eq!(SUPPORTED_API_VERSIONS, &["3.0"]);
 
             // Verify versions are in ascending order (oldest to newest)
             for i in 1..SUPPORTED_API_VERSIONS.len() {
@@ -1020,12 +1029,11 @@ mod tests {
             let versions: Vec<&str> =
                 SUPPORTED_API_VERSIONS.iter().rev().copied().collect();
 
-            // Should be newest first
-            assert_eq!(versions[0], "3.0");
-            assert_eq!(versions[1], "2.3");
-            assert_eq!(versions[2], "2.2");
-            assert_eq!(versions[3], "2.1");
-            assert_eq!(versions[4], "2.0");
+            // Should be newest first (last element of ascending array)
+            assert_eq!(
+                versions[0],
+                *SUPPORTED_API_VERSIONS.last().unwrap() //#[allow_ci]
+            );
 
             // Verify it's actually newest to oldest
             for i in 1..versions.len() {
