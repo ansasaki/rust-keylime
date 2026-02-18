@@ -9,6 +9,8 @@
 //! concerns itself.
 
 pub mod conversion;
+pub mod digest;
+pub mod ima_parser;
 pub mod measured_boot_policy;
 pub mod runtime_policy;
 pub mod tpm_policy;
