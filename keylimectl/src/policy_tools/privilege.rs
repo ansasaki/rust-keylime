@@ -18,7 +18,6 @@ pub fn is_permission_error(err: &std::io::Error) -> bool {
 ///
 /// Returns a string like:
 /// `"Insufficient privileges. Try: sudo keylimectl <operation>"`
-#[allow(unused)]
 pub fn suggest_sudo(operation: &str) -> String {
     format!("Insufficient privileges. Try: sudo keylimectl {operation}")
 }
@@ -28,7 +27,6 @@ pub fn suggest_sudo(operation: &str) -> String {
 ///
 /// Other I/O errors (e.g. file not found) are returned as
 /// [`PolicyGenerationError::Output`].
-#[allow(unused)]
 pub fn check_file_readable(
     path: &Path,
     operation: &str,

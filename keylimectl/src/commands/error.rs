@@ -29,6 +29,8 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub use crate::policy_tools::dsse::DsseError;
+
 /// Command execution error types
 ///
 /// This enum covers all error conditions that can occur during CLI command
@@ -50,10 +52,6 @@ pub enum CommandError {
     /// DSSE signing/verification errors
     #[error("DSSE error: {0}")]
     Dsse(#[from] DsseError),
-
-    /// Evidence verification errors
-    #[error("Evidence error: {0}")]
-    Evidence(#[from] EvidenceError),
 
     /// Resource listing and management errors
     #[error("Resource error: {0}")]
@@ -169,46 +167,6 @@ pub enum PolicyGenerationError {
         path: PathBuf,
         hint: String,
     },
-}
-
-/// DSSE (Dead Simple Signing Envelope) errors
-///
-/// These errors represent issues with policy signing and
-/// signature verification using the DSSE protocol.
-#[derive(Error, Debug)]
-#[allow(dead_code)] // Variants used as features are implemented
-pub enum DsseError {
-    /// Signing operation failed
-    #[error("Signing failed: {reason}")]
-    SigningFailed { reason: String },
-
-    /// Signature verification failed
-    #[error("Signature verification failed: {reason}")]
-    VerificationFailed { reason: String },
-
-    /// Invalid DSSE envelope structure
-    #[error("Invalid DSSE envelope: {reason}")]
-    InvalidEnvelope { reason: String },
-
-    /// Key loading or generation error
-    #[error("Key error: {reason}")]
-    KeyError { reason: String },
-}
-
-/// Evidence verification errors
-///
-/// These errors represent issues with one-shot attestation
-/// evidence verification via the verifier.
-#[derive(Error, Debug)]
-#[allow(dead_code)] // Variants used as features are implemented
-pub enum EvidenceError {
-    /// Invalid or malformed evidence
-    #[error("Invalid evidence: {reason}")]
-    InvalidEvidence { reason: String },
-
-    /// Verifier communication error
-    #[error("Verifier error: {reason}")]
-    VerifierError { reason: String },
 }
 
 impl CommandError {
