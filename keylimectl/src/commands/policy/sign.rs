@@ -16,6 +16,7 @@ pub async fn execute(
     _keypath: Option<&str>,
     _backend: &SigningBackend,
     _output_file: Option<&str>,
+    _cert_file: Option<&str>,
     _cert_outfile: Option<&str>,
     _output: &OutputHandler,
 ) -> Result<Value, KeylimectlError> {

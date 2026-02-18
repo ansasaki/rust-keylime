@@ -9,6 +9,7 @@
 mod convert;
 mod crud;
 mod generate;
+mod merge;
 mod sign;
 mod validate;
 
@@ -45,6 +46,7 @@ pub async fn execute(
             keypath,
             backend,
             output: output_file,
+            cert_file,
             cert_outfile,
         } => {
             sign::execute(
@@ -53,6 +55,7 @@ pub async fn execute(
                 keypath.as_deref(),
                 backend,
                 output_file.as_deref(),
+                cert_file.as_deref(),
                 cert_outfile.as_deref(),
                 output,
             )
@@ -94,6 +97,15 @@ pub async fn execute(
         )
         .await
         .map_err(KeylimectlError::from),
+
+        // Merge two runtime policies
+        PolicyAction::Merge {
+            base,
+            other,
+            output: output_file,
+        } => merge::execute(base, other, output_file.as_deref(), output)
+            .await
+            .map_err(KeylimectlError::from),
     }
 }
 
