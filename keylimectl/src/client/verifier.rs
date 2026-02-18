@@ -1846,6 +1846,60 @@ impl VerifierClient {
             .map_err(KeylimectlError::from)
     }
 
+    /// Verify attestation evidence via the verifier's one-shot endpoint.
+    ///
+    /// Posts evidence data to `POST /v{version}/verify/evidence` and
+    /// returns the verification result.
+    pub async fn verify_evidence(
+        &self,
+        evidence_data: Value,
+    ) -> Result<Value, KeylimectlError> {
+        if !is_v3(&self.api_version) {
+            return Err(KeylimectlError::Client(
+                crate::client::error::ClientError::Configuration {
+                    message: format!(
+                        "Evidence verification requires API v3.0+, but verifier is running v{}",
+                        self.api_version
+                    ),
+                },
+            ));
+        }
+
+        debug!("Verifying evidence via verifier");
+
+        let url = format!(
+            "{}/v{}/verify/evidence",
+            self.base.base_url, self.api_version
+        );
+
+        let (body, content_type) = (
+            json_api_resource("evidence", None, evidence_data),
+            Some(JSON_API_CONTENT_TYPE.to_string()),
+        );
+
+        let response = self
+            .base
+            .client
+            .get_json_request_from_struct(
+                Method::POST,
+                &url,
+                &body,
+                content_type,
+            )
+            .map_err(KeylimectlError::Json)?
+            .send()
+            .await
+            .with_context(|| {
+                "Failed to send verify evidence request to verifier"
+                    .to_string()
+            })?;
+
+        self.base
+            .handle_response(response)
+            .await
+            .map_err(KeylimectlError::from)
+    }
+
     /// Get the detected API version
     pub fn api_version(&self) -> &str {
         &self.api_version
