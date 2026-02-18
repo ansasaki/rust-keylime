@@ -15,14 +15,15 @@
 //!
 //! ## Configuration Files (Optional)
 //! Configuration files are completely optional. The system searches for TOML files in the following order:
-//! - Explicit path provided via CLI argument (required to exist if specified)
+//! - Explicit path provided via CLI argument `--config` (required to exist if specified)
+//! - `.keylimectl/config.toml` (project-local)
 //! - `keylimectl.toml` (current directory)
 //! - `keylimectl.conf` (current directory)
+//! - `~/.config/keylimectl/config.toml` (user, canonical)
+//! - `$XDG_CONFIG_HOME/keylimectl/config.toml` (XDG override)
 //! - `/etc/keylime/keylimectl.conf` (system-wide)
 //! - `/usr/etc/keylime/keylimectl.conf` (alternative system-wide)
-//! - `~/.config/keylime/keylimectl.conf` (user-specific)
-//! - `~/.keylimectl.toml` (user-specific)
-//! - `$XDG_CONFIG_HOME/keylime/keylimectl.conf` (XDG standard)
+//! - Legacy paths: `~/.config/keylime/keylimectl.conf`, `~/.keylimectl.toml`
 //!
 //! If no configuration files are found, keylimectl will work perfectly with defaults and environment variables.
 //!
@@ -98,6 +99,9 @@ use std::path::PathBuf;
 /// - `client`: HTTP client behavior and retry configuration
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Path of the configuration file that was loaded, if any
+    #[serde(skip)]
+    pub loaded_from: Option<PathBuf>,
     /// Verifier configuration
     pub verifier: VerifierConfig,
     /// Registrar configuration
@@ -306,6 +310,12 @@ impl Default for ClientConfig {
 }
 
 impl Config {
+    /// Check if a configuration file was loaded
+    #[must_use]
+    pub fn has_config_file(&self) -> bool {
+        self.loaded_from.is_some()
+    }
+
     /// Load configuration from multiple sources
     ///
     /// Loads configuration with the following precedence (highest to lowest):
@@ -354,15 +364,22 @@ impl Config {
         let config_paths = Self::get_config_paths(config_path);
         let mut config_file_found = false;
 
-        for path in config_paths {
+        // Iterate in reverse: system paths added first (low priority),
+        // local paths added last (high priority, wins in merge)
+        for path in config_paths.iter().rev() {
             if path.exists() {
                 config_file_found = true;
                 log::debug!("Loading config from: {}", path.display());
                 builder = builder.add_source(
-                    File::from(path).format(FileFormat::Toml).required(false),
+                    File::from(path.clone())
+                        .format(FileFormat::Toml)
+                        .required(false),
                 );
             }
         }
+        // loaded_from tracks the highest-precedence file
+        // (first existing in original order)
+        let loaded_path = config_paths.iter().find(|p| p.exists()).cloned();
 
         // If an explicit config path was provided but the file doesn't exist, that's an error
         if let Some(explicit_path) = config_path {
@@ -381,7 +398,8 @@ impl Config {
                 .try_parsing(true),
         );
 
-        let config = builder.build()?.try_deserialize()?;
+        let mut config: Config = builder.build()?.try_deserialize()?;
+        config.loaded_from = loaded_path;
 
         // Log information about configuration sources used
         if config_file_found {
@@ -390,6 +408,34 @@ impl Config {
             );
         } else {
             log::info!("No configuration files found, using defaults and environment variables");
+        }
+
+        // Enforce restrictions on CWD-sourced configs to prevent planted
+        // config attacks (e.g. cloned repo with malicious keylimectl.conf)
+        if config_path.is_none() {
+            if let Some(ref path) = config.loaded_from {
+                if path.is_relative() {
+                    log::warn!(
+                        "Loading configuration from current directory: {}. \
+                         Security-sensitive settings are restricted.",
+                        path.display()
+                    );
+                    if !config.tls.verify_server_cert {
+                        log::warn!(
+                            "Ignoring verify_server_cert=false from CWD config — \
+                             use a system/user config or --config to disable"
+                        );
+                        config.tls.verify_server_cert = true;
+                    }
+                    if config.tls.client_key_password.is_some() {
+                        log::warn!(
+                            "Ignoring client_key_password from CWD config — \
+                             use a system/user config, --config, or env var"
+                        );
+                        config.tls.client_key_password = None;
+                    }
+                }
+            }
         }
 
         Ok(config)
@@ -435,10 +481,29 @@ impl Config {
             self.registrar.port = port;
         }
 
+        if let Some(timeout) = cli.timeout {
+            self.client.timeout = timeout;
+        }
+
         self
     }
 
     /// Get configuration file search paths
+    ///
+    /// Returns paths in order of precedence (highest priority first):
+    /// 1. `.keylimectl/config.toml` (project-local)
+    /// 2. `keylimectl.toml` (current directory)
+    /// 3. `keylimectl.conf` (current directory)
+    /// 4. `~/.config/keylimectl/config.toml` (user, canonical)
+    /// 5. `$XDG_CONFIG_HOME/keylimectl/config.toml` (XDG override)
+    /// 6. `/etc/keylime/keylimectl.conf` (system-wide)
+    /// 7. `/usr/etc/keylime/keylimectl.conf` (alternative system-wide)
+    ///
+    /// Legacy paths (8-10) are included for backward compatibility.
+    ///
+    /// If `KEYLIMECTL_CONFIG` is set, its value is used as the sole
+    /// config file path, replacing the default search list entirely
+    /// (same pattern as `KEYLIME_AGENT_CONFIG` in the agent).
     fn get_config_paths(config_path: Option<&str>) -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
@@ -448,22 +513,42 @@ impl Config {
             return paths;
         }
 
-        // Standard search paths
-        paths.extend([
-            PathBuf::from("keylimectl.toml"),
-            PathBuf::from("keylimectl.conf"),
-            PathBuf::from("/etc/keylime/keylimectl.conf"),
-            PathBuf::from("/usr/etc/keylime/keylimectl.conf"),
-        ]);
+        // If KEYLIMECTL_CONFIG is set, use that path exclusively
+        if let Ok(config_env) = std::env::var("KEYLIMECTL_CONFIG") {
+            paths.push(PathBuf::from(config_env));
+            return paths;
+        }
 
-        // Home directory config
+        // 1. Project-local directory
+        paths.push(PathBuf::from(".keylimectl/config.toml"));
+
+        // 2-3. Current directory
+        paths.push(PathBuf::from("keylimectl.toml"));
+        paths.push(PathBuf::from("keylimectl.conf"));
+
+        // 4. User config (canonical path)
         if let Some(home) = std::env::var_os("HOME") {
-            let home_path = PathBuf::from(home);
+            let home_path = PathBuf::from(&home);
+            paths.push(home_path.join(".config/keylimectl/config.toml"));
+        }
+
+        // 5. XDG config directory
+        if let Some(xdg_config) = std::env::var_os("XDG_CONFIG_HOME") {
+            paths.push(
+                PathBuf::from(xdg_config).join("keylimectl/config.toml"),
+            );
+        }
+
+        // 6-7. System-wide
+        paths.push(PathBuf::from("/etc/keylime/keylimectl.conf"));
+        paths.push(PathBuf::from("/usr/etc/keylime/keylimectl.conf"));
+
+        // 8-10. Legacy paths for backward compatibility
+        if let Some(home) = std::env::var_os("HOME") {
+            let home_path = PathBuf::from(&home);
             paths.push(home_path.join(".config/keylime/keylimectl.conf"));
             paths.push(home_path.join(".keylimectl.toml"));
         }
-
-        // XDG config directory
         if let Some(xdg_config) = std::env::var_os("XDG_CONFIG_HOME") {
             paths.push(
                 PathBuf::from(xdg_config).join("keylime/keylimectl.conf"),
@@ -588,15 +673,16 @@ mod tests {
             verifier_port,
             registrar_ip,
             registrar_port,
+            timeout: None,
             verbose: 0,
             quiet: false,
             format: crate::OutputFormat::Json,
-            command: crate::Commands::Agent {
+            command: Some(crate::Commands::Agent {
                 action: crate::AgentAction::List {
                     detailed: false,
                     registrar_only: false,
                 },
-            },
+            }),
         }
     }
 
@@ -730,6 +816,25 @@ mod tests {
         assert_eq!(config.verifier.ip, "192.168.1.1");
         assert_eq!(config.verifier.port, 8881); // Should remain default
         assert_eq!(config.registrar.ip, "127.0.0.1"); // Should remain default
+    }
+
+    #[test]
+    fn test_cli_timeout_override() {
+        let config = Config::default();
+        assert_eq!(config.client.timeout, 60); // Default
+
+        let mut cli = create_test_cli(None, None, None, None);
+        cli.timeout = Some(120);
+        let config = config.with_cli_overrides(&cli);
+        assert_eq!(config.client.timeout, 120);
+    }
+
+    #[test]
+    fn test_cli_timeout_no_override() {
+        let config = Config::default();
+        let cli = create_test_cli(None, None, None, None);
+        let config = config.with_cli_overrides(&cli);
+        assert_eq!(config.client.timeout, 60); // Should remain default
     }
 
     #[test]
@@ -1064,6 +1169,9 @@ retry_interval = 2.0
     fn test_get_config_paths_standard() {
         let paths = Config::get_config_paths(None);
 
+        // Project-local should be first
+        assert_eq!(paths[0], PathBuf::from(".keylimectl/config.toml"));
+
         // Should include standard paths
         assert!(paths.contains(&PathBuf::from("keylimectl.toml")));
         assert!(paths.contains(&PathBuf::from("keylimectl.conf")));
@@ -1072,6 +1180,32 @@ retry_interval = 2.0
         );
         assert!(paths
             .contains(&PathBuf::from("/usr/etc/keylime/keylimectl.conf")));
+    }
+
+    #[test]
+    fn test_loaded_from_with_explicit_file() {
+        let mut temp_file = NamedTempFile::new().unwrap(); //#[allow_ci]
+        temp_file //#[allow_ci]
+            .write_all(b"[verifier]\nip = \"10.0.0.1\"\n")
+            .unwrap(); //#[allow_ci]
+        temp_file.flush().unwrap(); //#[allow_ci]
+
+        let config = Config::load(Some(
+            temp_file.path().to_str().unwrap(), //#[allow_ci]
+        ))
+        .unwrap(); //#[allow_ci]
+        assert!(config.has_config_file());
+        assert_eq!(
+            config.loaded_from.unwrap(), //#[allow_ci]
+            temp_file.path()
+        );
+    }
+
+    #[test]
+    fn test_loaded_from_default_is_none() {
+        let config = Config::default();
+        assert!(!config.has_config_file());
+        assert!(config.loaded_from.is_none());
     }
 
     #[test]
