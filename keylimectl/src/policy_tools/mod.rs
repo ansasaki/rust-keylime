@@ -18,3 +18,4 @@ pub mod merge;
 pub mod privilege;
 pub mod runtime_policy;
 pub mod tpm_policy;
+pub mod validation;
