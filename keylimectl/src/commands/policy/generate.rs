@@ -290,9 +290,6 @@ async fn generate_runtime(
             policy.digest_count(),
             policy.exclude_count()
         ));
-    } else {
-        // Output to stdout via the output handler
-        output.success(policy_json.clone());
     }
 
     Ok(policy_json)
@@ -335,8 +332,6 @@ fn generate_measured_boot(
         let json_str = serde_json::to_string_pretty(&policy_json)?;
         std::fs::write(out_path, &json_str)?;
         output.info(format!("Measured boot policy written to {out_path}"));
-    } else {
-        output.success(policy_json.clone());
     }
 
     Ok(policy_json)
@@ -401,8 +396,6 @@ fn generate_tpm(
         let json_str = serde_json::to_string_pretty(&policy_json)?;
         std::fs::write(out_path, &json_str)?;
         output.info(format!("TPM policy written to {out_path}"));
-    } else {
-        output.success(policy_json.clone());
     }
 
     Ok(policy_json)
