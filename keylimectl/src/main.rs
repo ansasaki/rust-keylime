@@ -405,7 +405,11 @@ enum PolicyAction {
         #[arg(short, long, value_name = "FILE")]
         output: Option<String>,
 
-        /// Output file for X.509 certificate (x509 backend only)
+        /// Input X.509 certificate file when using --keyfile (x509 backend only)
+        #[arg(short = 'C', long, value_name = "FILE")]
+        cert_file: Option<String>,
+
+        /// Output file for generated X.509 certificate (x509 backend only)
         #[arg(short = 'c', long, value_name = "FILE")]
         cert_outfile: Option<String>,
     },
@@ -459,6 +463,37 @@ enum PolicyAction {
         #[arg(short = 'v', long, value_name = "FILES")]
         verification_keys: Option<String>,
     },
+
+    /// Merge two runtime policies into one (union of digests, excludes, keyrings)
+    Merge {
+        /// Base policy file
+        #[arg(value_name = "BASE")]
+        base: String,
+
+        /// Policy file to merge into base
+        #[arg(value_name = "OTHER")]
+        other: String,
+
+        /// Output file (stdout if omitted)
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<String>,
+    },
+}
+
+impl PolicyAction {
+    /// Returns true if this action operates entirely locally
+    /// (no network connectivity required).
+    fn is_local_only(&self) -> bool {
+        matches!(
+            self,
+            PolicyAction::Generate { .. }
+                | PolicyAction::Sign { .. }
+                | PolicyAction::VerifySignature { .. }
+                | PolicyAction::Validate { .. }
+                | PolicyAction::Convert { .. }
+                | PolicyAction::Merge { .. }
+        )
+    }
 }
 
 /// Policy generation subcommands
@@ -736,6 +771,43 @@ async fn main() {
         Some(ref command @ Commands::Configure { .. }) => {
             // Configure command does not require config validation
             // or the singleton — it creates/updates configuration.
+            let output = OutputHandler::new(cli.format, cli.quiet);
+
+            let result = execute_command(command, &output).await;
+
+            match result {
+                Ok(response) => {
+                    output.success(response);
+                }
+                Err(e) => {
+                    error!("Command failed: {e}");
+                    output.error(e);
+                    process::exit(1);
+                }
+            }
+        }
+        Some(
+            ref command @ Commands::Policy {
+                action:
+                    ref action @ PolicyAction::Generate { .. }
+                    | ref action @ PolicyAction::Sign { .. }
+                    | ref action @ PolicyAction::VerifySignature { .. }
+                    | ref action @ PolicyAction::Validate { .. }
+                    | ref action @ PolicyAction::Convert { .. }
+                    | ref action @ PolicyAction::Merge { .. },
+            },
+        ) if action.is_local_only() => {
+            // Local-only policy commands do not require network
+            // connectivity or valid TLS configuration.
+            if let Err(e) = config.validate() {
+                warn!("Configuration validation: {e}");
+            }
+
+            if let Err(e) = config::singleton::initialize_config(config) {
+                error!("Failed to initialize config singleton: {e}");
+                process::exit(1);
+            }
+
             let output = OutputHandler::new(cli.format, cli.quiet);
 
             let result = execute_command(command, &output).await;
