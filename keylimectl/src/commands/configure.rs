@@ -179,7 +179,11 @@ fn write_config_file(
     })?;
 
     debug!("Writing configuration to {}", path.display());
-    fs::write(path, toml_str).map_err(|e| {
+    crate::policy_tools::privilege::write_sensitive_file(
+        path,
+        toml_str.as_bytes(),
+    )
+    .map_err(|e| {
         KeylimectlError::Validation(format!(
             "Failed to write configuration to {}: {e}",
             path.display()
