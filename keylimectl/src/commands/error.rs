@@ -167,6 +167,11 @@ pub enum PolicyGenerationError {
         path: PathBuf,
         hint: String,
     },
+
+    /// RPM parsing error
+    #[cfg(feature = "rpm-repo")]
+    #[error("RPM parse error at {path}: {reason}")]
+    RpmParse { path: PathBuf, reason: String },
 }
 
 impl CommandError {
