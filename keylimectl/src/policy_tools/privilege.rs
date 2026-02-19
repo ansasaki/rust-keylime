@@ -94,7 +94,6 @@ pub fn write_sensitive_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// Check that `path` (a directory) is readable and listable.
 ///
 /// Returns [`PolicyGenerationError::PrivilegeRequired`] on permission errors.
-#[allow(unused)]
 pub fn check_dir_readable(
     path: &Path,
     operation: &str,
