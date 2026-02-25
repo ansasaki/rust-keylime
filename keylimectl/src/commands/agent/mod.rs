@@ -161,7 +161,7 @@ use serde_json::{json, Value};
 /// // Remove the same agent
 /// let remove_action = AgentAction::Remove {
 ///     uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-///     from_registrar: false,
+///     registrar: false,
 ///     force: false,
 /// };
 ///
@@ -219,9 +219,9 @@ pub async fn execute(
         .map_err(KeylimectlError::from),
         AgentAction::Remove {
             uuid,
-            from_registrar,
+            registrar,
             force,
-        } => remove_agent(uuid, *from_registrar, *force, output)
+        } => remove_agent(uuid, *registrar, *force, output)
             .await
             .map_err(KeylimectlError::from),
         AgentAction::Update {
@@ -242,9 +242,9 @@ pub async fn execute(
         .map_err(KeylimectlError::from),
         AgentAction::Status {
             uuid,
-            verifier_only,
+            verifier,
             registrar_only,
-        } => get_agent_status(uuid, *verifier_only, *registrar_only, output)
+        } => get_agent_status(uuid, *verifier, *registrar_only, output)
             .await
             .map_err(KeylimectlError::from),
         AgentAction::Reactivate { uuid } => reactivate_agent(uuid, output)
@@ -487,7 +487,7 @@ mod tests {
 
             let remove_action = AgentAction::Remove {
                 uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                from_registrar: false,
+                registrar: false,
                 force: false,
             };
 
@@ -501,7 +501,7 @@ mod tests {
 
             let status_action = AgentAction::Status {
                 uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                verifier_only: false,
+                verifier: false,
                 registrar_only: false,
             };
 
@@ -520,11 +520,11 @@ mod tests {
             match remove_action {
                 AgentAction::Remove {
                     uuid,
-                    from_registrar,
+                    registrar,
                     force,
                 } => {
                     assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
-                    assert!(!from_registrar);
+                    assert!(!registrar);
                     assert!(!force);
                 }
                 _ => panic!("Expected Remove action"), //#[allow_ci]
@@ -547,11 +547,11 @@ mod tests {
             match status_action {
                 AgentAction::Status {
                     uuid,
-                    verifier_only,
+                    verifier,
                     registrar_only,
                 } => {
                     assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
-                    assert!(!verifier_only);
+                    assert!(!verifier);
                     assert!(!registrar_only);
                 }
                 _ => panic!("Expected Status action"), //#[allow_ci]
