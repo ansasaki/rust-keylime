@@ -161,6 +161,12 @@ pub(super) async fn add_agent(
         },
     };
 
+    // Extract agent mTLS certificate from registrar data.
+    // Used as trusted root CA when connecting directly to the agent.
+    #[cfg(feature = "api-v2")]
+    let agent_mtls_cert =
+        agent_data.get("mtls_cert").and_then(|v| v.as_str());
+
     // Pull model requires IP and port for direct agent communication
     if !is_push_model {
         if agent_ip.is_none() {
@@ -193,6 +199,7 @@ pub(super) async fn add_agent(
                 .agent_ip(&agent_ip)
                 .agent_port(agent_port)
                 .config(get_config())
+                .agent_cert(agent_mtls_cert)
                 .build()
                 .await
                 .map_err(|e| {
@@ -413,6 +420,7 @@ pub(super) async fn add_agent(
             .agent_ip(&agent_ip)
             .agent_port(agent_port)
             .config(get_config())
+            .agent_cert(agent_mtls_cert)
             .build()
             .await
             .map_err(|e| {
