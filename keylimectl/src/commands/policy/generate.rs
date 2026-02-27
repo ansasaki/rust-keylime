@@ -218,6 +218,10 @@ pub(super) async fn generate_runtime(
     if let Some(ima_path) = ima_measurement_list {
         let path = Path::new(ima_path);
         if path.exists() {
+            privilege::check_file_readable(
+                path,
+                &format!("policy generate runtime --ima-measurement-list {ima_path}"),
+            )?;
             output.info(format!("Parsing IMA measurement list: {ima_path}"));
 
             let ima_data = ima_parser::parse_ima_measurement_list(
@@ -275,6 +279,10 @@ pub(super) async fn generate_runtime(
     // Parse allowlist
     if let Some(allowlist_path) = allowlist {
         let path = Path::new(allowlist_path);
+        privilege::check_file_readable(
+            path,
+            &format!("policy generate runtime --allowlist {allowlist_path}"),
+        )?;
         output.info(format!("Parsing allowlist: {allowlist_path}"));
 
         // Auto-detect format: try JSON first, fall back to flat text
@@ -303,18 +311,58 @@ pub(super) async fn generate_runtime(
     if let Some(rootfs_path) = rootfs {
         let algorithm = detected_algorithm.as_deref().unwrap_or("sha256");
 
+        let root = Path::new(rootfs_path);
+
+        // Merge user-provided skip paths with built-in defaults.
+        let (mut effective_skip, redundant) =
+            filesystem::build_effective_skip_paths(root, skip_path);
+
+        // Auto-detect non-root mount points and skip them during scanning.
+        // This is best-effort: /proc/mounts may not exist in containers.
+        match filesystem::detect_non_root_mounts() {
+            Ok(mounts) if !mounts.is_empty() => {
+                output.info(format!(
+                    "Auto-excluding non-root mount points: {}",
+                    mounts.join(", ")
+                ));
+                for mount in mounts {
+                    let rel = mount.trim_start_matches('/');
+                    let mount_path =
+                        root.join(rel).to_string_lossy().into_owned();
+                    effective_skip.push(mount_path);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                output.info(format!(
+                    "Warning: Could not detect non-root mounts: {e}"
+                ));
+            }
+        }
+
+        // Inform the user about default excluded paths.
+        output.info(format!(
+            "Default excluded directories (volatile/virtual data): {}",
+            filesystem::BASE_EXCLUDE_DIRS.join(", ")
+        ));
+
+        // Warn about user-provided paths already covered by defaults.
+        for path in &redundant {
+            output.info(format!(
+                "Note: --skip-path '{path}' is already excluded by default (no additional effect)"
+            ));
+        }
+
         output.info(format!(
             "Scanning filesystem: {rootfs_path} (algorithm: {algorithm})"
         ));
 
-        let root = Path::new(rootfs_path);
         let fs_digests = tokio::task::spawn_blocking({
             let root = root.to_path_buf();
-            let skip = skip_path.to_vec();
             let alg = algorithm.to_string();
             move || {
                 filesystem::scan_filesystem(
-                    &root, &skip, &alg,
+                    &root, &effective_skip, &alg,
                 )
             }
         })
