@@ -507,10 +507,9 @@ mod tests {
             match update_action {
                 AgentAction::Update {
                     uuid,
-                    runtime_policy_name,
-                    runtime_policy_sig_key,
                     runtime_policy,
                     mb_policy,
+                    ..
                 } => {
                     assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
                     assert!(runtime_policy.is_some());

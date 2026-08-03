@@ -5,4 +5,5 @@
 
 pub mod agent;
 pub mod error;
+pub mod measured_boot;
 pub mod policy;
