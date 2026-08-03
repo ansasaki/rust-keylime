@@ -15,6 +15,29 @@ use reqwest::StatusCode;
 use serde_json::Value;
 use std::time::Duration;
 
+/// Validate that an agent identifier is safe for use in URL paths.
+///
+/// Rejects characters that could cause path traversal, query injection,
+/// or fragment injection when interpolated into URLs.
+pub fn validate_agent_id(agent_id: &str) -> Result<(), ClientError> {
+    if agent_id.is_empty() {
+        return Err(ClientError::Configuration {
+            message: "Agent ID must not be empty".to_string(),
+        });
+    }
+    if !agent_id.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
+    }) {
+        return Err(ClientError::Configuration {
+            message: format!(
+                "Agent ID contains invalid characters: '{agent_id}'. \
+                 Only alphanumeric characters, '.', '_', and '-' are allowed."
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Base HTTP client functionality shared across all service clients
 ///
 /// This structure encapsulates the common HTTP client setup and TLS configuration
