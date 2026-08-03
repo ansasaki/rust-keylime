@@ -3,4 +3,5 @@
 
 //! Command implementations for keylimectl
 
+pub mod agent;
 pub mod error;
