@@ -180,6 +180,10 @@ enum AgentAction {
         /// TPM policy in JSON format
         #[arg(long, value_name = "POLICY")]
         tpm_policy: Option<String>,
+
+        /// Allow attestation with unverified TPM quotes (INSECURE: for development only)
+        #[arg(long)]
+        allow_unverified_quote: bool,
     },
 
     /// Remove an agent from the verifier
