@@ -9,6 +9,7 @@
 
 #![deny(
     nonstandard_style,
+    dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
     no_mangle_generic_items,
@@ -16,21 +17,21 @@
     path_statements,
     patterns_in_fns_without_body,
     unconditional_recursion,
+    unused,
     while_true,
     missing_copy_implementations,
     missing_debug_implementations,
     missing_docs,
     trivial_casts,
     trivial_numeric_casts,
+    unused_allocation,
     unused_comparisons,
     unused_parens,
     unused_extern_crates,
     unused_import_braces,
-    unused_qualifications
+    unused_qualifications,
+    unused_results
 )]
-// dead_code and unused are allowed temporarily in this scaffold commit;
-// they are denied once command dispatch is wired up.
-#![allow(dead_code, unused)]
 
 mod client;
 mod commands;
@@ -38,11 +39,14 @@ mod config;
 mod error;
 mod output;
 
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use log::{debug, error};
+use serde_json::Value;
 use std::process;
 
 use crate::config::Config;
+use crate::error::KeylimectlError;
 use crate::output::OutputHandler;
 
 /// Modern command-line tool for Keylime remote attestation
@@ -383,18 +387,21 @@ async fn main() {
     }
 
     // Initialize output handler
-    let _output = OutputHandler::new(cli.format, cli.quiet);
+    let output = OutputHandler::new(cli.format, cli.quiet);
 
-    // Command dispatch will be added as command modules are implemented
-    error!(
-        "Command '{}' is not yet implemented",
-        match &cli.command {
-            Commands::Agent { .. } => "agent",
-            Commands::Policy { .. } => "policy",
-            Commands::MeasuredBoot { .. } => "measured-boot",
+    // Execute command (no longer pass config)
+    let result = execute_command(&cli.command, &output).await;
+
+    match result {
+        Ok(response) => {
+            output.success(response);
         }
-    );
-    process::exit(1);
+        Err(e) => {
+            error!("Command failed: {e}");
+            output.error(e);
+            process::exit(1);
+        }
+    }
 }
 
 /// Initialize logging based on verbosity level
@@ -414,4 +421,22 @@ fn init_logging(verbose: u8, quiet: bool) {
         .filter_level(log_level)
         .target(pretty_env_logger::env_logger::Target::Stderr)
         .init();
+}
+
+/// Execute the given command
+async fn execute_command(
+    command: &Commands,
+    output: &OutputHandler,
+) -> Result<Value, KeylimectlError> {
+    match command {
+        Commands::Agent { action } => {
+            commands::agent::execute(action, output).await
+        }
+        Commands::Policy { action } => {
+            commands::policy::execute(action, output).await
+        }
+        Commands::MeasuredBoot { action } => {
+            commands::measured_boot::execute(action, output).await
+        }
+    }
 }
