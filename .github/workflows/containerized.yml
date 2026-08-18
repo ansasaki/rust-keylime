@@ -1,0 +1,76 @@
+name: containerized
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    services:
+      verifier:
+        image: quay.io/keylime/keylime_verifier:latest
+        ports:
+          - 8880:8880
+          - 8881:8881
+
+      registrar:
+        image: quay.io/keylime/keylime_registrar:latest
+        ports:
+          - 8890:8890
+          - 8891:8891
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+          automake \
+          cargo \
+          clang-devel \
+          dbus \
+          dbus-daemon \
+          dbus-devel \
+          dnf-plugins-core \
+          efivar-devel \
+          gcc \
+          git \
+          glib2-devel \
+          glib2-static \
+          gnulib \
+          kmod \
+          libarchive-devel \
+          libselinux-python3 \
+          libtool \
+          llvm llvm-devel \
+          make \
+          openssl-devel \
+          rust clippy cargo \
+          pkg-config \
+          swtpm \
+          swtpm-tools \
+          tpm2-abrmd \
+          tpm2-tools \
+          tpm2-tss-devel \
+          zeromq-devel
+
+      - name: Build
+        run: |
+          cargo build
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: logs
+          path: /tmp/log/*.log
+
