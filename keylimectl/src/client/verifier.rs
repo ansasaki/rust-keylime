@@ -826,7 +826,14 @@ impl VerifierClient {
                         .handle_response(response)
                         .await
                         .map_err(KeylimectlError::from)?;
-                    Ok(Some(json_response))
+
+                    // Extract agent data from verifier response format
+                    // The verifier API wraps data in {"code", "status", "results": {...}}
+                    if let Some(results) = json_response.get("results") {
+                        Ok(Some(results.clone()))
+                    } else {
+                        Ok(Some(json_response))
+                    }
                 }
                 StatusCode::NOT_FOUND => Ok(None),
                 _ => {
@@ -878,7 +885,13 @@ impl VerifierClient {
                     .handle_response(response)
                     .await
                     .map_err(KeylimectlError::from)?;
-                Ok(Some(json_response))
+
+                // Extract agent data from v3 response
+                if let Some(results) = json_response.get("results") {
+                    Ok(Some(results.clone()))
+                } else {
+                    Ok(Some(json_response))
+                }
             }
             StatusCode::NOT_FOUND => Ok(None),
             _ => {

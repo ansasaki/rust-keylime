@@ -597,13 +597,10 @@ fn apply_file_policies(
 /// occasionally as a string. This function handles both and converts
 /// integers to their string representation.
 fn extract_operational_state(data: &Value) -> Option<String> {
-    // v2: data.results.operational_state
     let raw = data
-        .pointer("/results/operational_state")
+        .get("operational_state")
         // v3 JSON:API: data.data.attributes.operational_state
-        .or_else(|| data.pointer("/data/attributes/operational_state"))
-        // flat fallback
-        .or_else(|| data.get("operational_state"));
+        .or_else(|| data.pointer("/data/attributes/operational_state"));
 
     match raw {
         Some(Value::String(s)) => Some(s.clone()),
@@ -679,20 +676,18 @@ async fn poll_attestation_status(
                     Some("FAIL") => {
                         // Collect failure details from the response
                         let severity = data
-                            .pointer("/results/severity_level")
+                            .get("severity_level")
                             .or_else(|| {
                                 data.pointer(
                                     "/data/attributes/severity_level",
                                 )
                             })
-                            .or_else(|| data.get("severity_level"))
                             .and_then(|v| v.as_u64());
                         let last_event = data
-                            .pointer("/results/last_event_id")
+                            .get("last_event_id")
                             .or_else(|| {
                                 data.pointer("/data/attributes/last_event_id")
                             })
-                            .or_else(|| data.get("last_event_id"))
                             .and_then(|v| v.as_str());
 
                         let mut reason =
@@ -755,17 +750,13 @@ async fn poll_attestation_status(
 /// The verifier computes this field based on operational_state (pull mode)
 /// or attestation history (push mode). Values: "PENDING", "PASS", "FAIL".
 fn extract_attestation_status(data: &Value) -> Option<&str> {
-    // v2: data.results.attestation_status
-    data.get("results")
-        .and_then(|r| r.get("attestation_status"))
+    data.get("attestation_status")
         .and_then(|s| s.as_str())
         // v3 JSON:API: data.data.attributes.attestation_status
         .or_else(|| {
             data.pointer("/data/attributes/attestation_status")
                 .and_then(|s| s.as_str())
         })
-        // flat fallback
-        .or_else(|| data.get("attestation_status").and_then(|s| s.as_str()))
 }
 
 #[cfg(test)]
@@ -773,11 +764,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_operational_state_nested_integer() {
+    fn test_extract_operational_state_integer() {
         let data = json!({
-            "results": {
-                "operational_state": 3
-            }
+            "operational_state": 3
         });
         assert_eq!(
             extract_operational_state(&data),
@@ -786,11 +775,9 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_operational_state_nested_string() {
+    fn test_extract_operational_state_string() {
         let data = json!({
-            "results": {
-                "operational_state": "Get Quote"
-            }
+            "operational_state": "Get Quote"
         });
         assert_eq!(
             extract_operational_state(&data),
@@ -824,11 +811,12 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_operational_state_prefers_nested() {
+    fn test_extract_operational_state_jsonapi_format() {
         let data = json!({
-            "operational_state": 1,
-            "results": {
-                "operational_state": 3
+            "data": {
+                "attributes": {
+                    "operational_state": 3
+                }
             }
         });
         assert_eq!(
@@ -856,9 +844,7 @@ mod tests {
     #[test]
     fn test_extract_attestation_status() {
         let data = json!({
-            "results": {
-                "attestation_status": "PASS"
-            }
+            "attestation_status": "PASS"
         });
         assert_eq!(extract_attestation_status(&data), Some("PASS"));
 
@@ -869,6 +855,18 @@ mod tests {
 
         let data = json!({});
         assert_eq!(extract_attestation_status(&data), None);
+    }
+
+    #[test]
+    fn test_extract_attestation_status_jsonapi() {
+        let data = json!({
+            "data": {
+                "attributes": {
+                    "attestation_status": "PASS"
+                }
+            }
+        });
+        assert_eq!(extract_attestation_status(&data), Some("PASS"));
     }
 
     #[test]
