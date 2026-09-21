@@ -3,12 +3,8 @@
 
 //! Agent status query command
 
-#[cfg(feature = "api-v2")]
-use crate::client::agent::AgentClient;
 use crate::client::factory;
 use crate::commands::error::CommandError;
-#[cfg(feature = "api-v2")]
-use crate::config::singleton::get_config;
 use crate::error::KeylimectlError;
 use crate::output::OutputHandler;
 use serde_json::{json, Value};
@@ -86,97 +82,31 @@ pub(super) async fn get_agent_status(
         }
     }
 
-    // Check agent directly for pull-model agents only.
+    // Determine agent model (push vs pull) from verifier data.
     // Push-mode agents have ip=null and port=null in the verifier DB,
     // matching the Python verifier's is_push_mode_agent() logic.
-    #[cfg(feature = "api-v2")]
+    // Direct agent contact is not performed: the verifier's attestation_status,
+    // last_received_quote, and last_successful_attestation fields provide
+    // authoritative liveness information without requiring mTLS client certificates.
     if !registrar_only {
         let verifier_data =
             results.get("verifier").and_then(|v| v.get("data"));
 
-        // Determine push vs pull from verifier-stored ip/port.
         let is_push_mode = verifier_data.is_none_or(|data| {
             let ip_null = data.get("ip").is_none_or(|v| v.is_null());
             let port_null = data.get("port").is_none_or(|v| v.is_null());
             ip_null && port_null
         });
 
-        if is_push_mode {
-            results["agent"] = json!({
-                "status": "not_applicable",
-                "note": "Direct agent communication is not used with push model. \
-                         Agent attestation status is managed by the verifier."
-            });
-            results["model"] = json!("push");
+        results["model"] = if is_push_mode {
+            json!("push")
         } else {
-            // Pull model: extract IP/port from verifier data for direct agent check.
-            let agent_connection = verifier_data.and_then(|data| {
-                let ip = data
-                    .get("ip")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let port = data
-                    .get("port")
-                    .and_then(|v| v.as_u64().map(|p| p as u16));
-                ip.zip(port)
-            });
-
-            if let Some((ip, port)) = agent_connection {
-                results["model"] = json!("pull");
-                output.progress("Checking agent status directly");
-
-                match AgentClient::builder()
-                    .agent_ip(&ip)
-                    .agent_port(port)
-                    .config(get_config())
-                    .build()
-                    .await
-                {
-                    Ok(agent_client) => {
-                        match agent_client
-                            .get_quote("test_connectivity")
-                            .await
-                        {
-                            Ok(_) => {
-                                results["agent"] = json!({
-                                    "status": "responsive",
-                                    "connection": format!("{ip}:{port}")
-                                });
-                            }
-                            Err(e) => {
-                                if e.to_string().contains("400")
-                                    || e.to_string().contains("Bad Request")
-                                {
-                                    results["agent"] = json!({
-                                        "status": "responsive",
-                                        "connection": format!("{ip}:{port}"),
-                                        "note": "Agent rejected test nonce (expected)"
-                                    });
-                                } else {
-                                    results["agent"] = json!({
-                                        "status": "unreachable",
-                                        "connection": format!("{ip}:{port}"),
-                                        "error": e.to_string()
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        results["agent"] = json!({
-                            "status": "connection_failed",
-                            "connection": format!("{ip}:{port}"),
-                            "error": e.to_string()
-                        });
-                    }
-                }
-            }
-        }
+            json!("pull")
+        };
     }
 
     let result_map = results.as_object().expect("results is an object");
-    let failed_statuses =
-        ["error", "connection_failed", "not_found", "unreachable"];
+    let failed_statuses = ["error", "not_found"];
     let any_failed = result_map.values().any(|v| {
         v.get("status")
             .and_then(|s| s.as_str())
